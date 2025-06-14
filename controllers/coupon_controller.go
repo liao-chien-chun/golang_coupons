@@ -22,7 +22,12 @@ func RedeemCoupon(c *gin.Context) {
 	couponIDStr := c.Param("id")
 	couponID, err := strconv.Atoi(couponIDStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "優惠券 ID 無效"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "領券失敗",
+			"error":   "優惠券 ID 無效",
+		})
 		return
 	}
 
@@ -36,7 +41,12 @@ func RedeemCoupon(c *gin.Context) {
 	lockSuccess, err := redisclient.Rdb.SetNX(redisclient.Ctx, lockKey, "locked", 3*time.Second).Result()
 	if err != nil || !lockSuccess {
 		log.Printf("Redis 鎖定失敗：%v", err)
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "系統繁忙，請稍後再試"})
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"success": false,
+			"status":  http.StatusTooManyRequests,
+			"message": "領取失敗",
+			"error":   "系統繁忙，請稍後再試",
+		})
 		return
 	}
 	defer func() {
@@ -48,7 +58,12 @@ func RedeemCoupon(c *gin.Context) {
 	var existing models.CouponUsage
 	db.Where("user_id = ? AND coupon_id = ?", userID, couponID).First(&existing)
 	if existing.ID != 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "已領取過該優惠券"})
+		c.JSON(http.StatusConflict, gin.H{
+			"success": false,
+			"status":  http.StatusConflict,
+			"message": "領取失敗",
+			"error":   "已領取過該優惠券",
+		})
 		return
 	}
 
@@ -81,18 +96,33 @@ func RedeemCoupon(c *gin.Context) {
 	}
 
 	if coupon.ID == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "找不到優惠券"})
+		c.JSON(http.StatusNotFound, gin.H{
+			"success": false,
+			"status":  http.StatusNotFound,
+			"message": "領取失敗",
+			"error":   "找不到優惠券",
+		})
 		return
 	}
 
 	now := time.Now()
 	if now.Before(coupon.StartAt) || now.After(coupon.EndAt) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "優惠券已過期或未開始"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "領取失敗",
+			"error":   "優惠券已過期或未開始",
+		})
 		return
 	}
 
 	if coupon.Redeemed >= coupon.Total {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "優惠券已被領完"})
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "領取失敗",
+			"error":   "優惠券已被領完",
+		})
 		return
 	}
 
@@ -107,5 +137,9 @@ func RedeemCoupon(c *gin.Context) {
 	}
 	db.Create(&usage)
 
-	c.JSON(http.StatusOK, gin.H{"message": "優惠券領取成功"})
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"status":  http.StatusOK,
+		"message": "優惠券領取成功",
+	})
 }
