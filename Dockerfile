@@ -15,10 +15,10 @@ RUN go mod download
 COPY . .
 
 # 編譯 Gin 專案，輸出為 main（可執行檔）
-RUN go build -o main ./cmd/main.go
+RUN mkdir -p /bin && go build -o /bin/main ./cmd/main.go
 
 # 暴露 Gin 使用的 port（僅供內部用，外部由 Nginx 代理）
 EXPOSE 8080
 
 # 啟動應用程式
-CMD ["./main"]
+CMD ["/bin/main"]
