@@ -45,5 +45,5 @@ func InitDB() {
 	}
 
 	DB = db
-	log.Println("✅ 成功連線資料庫並執行 migration")
+	log.Println("成功連線資料庫並執行 migration")
 }

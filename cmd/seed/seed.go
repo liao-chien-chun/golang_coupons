@@ -39,5 +39,5 @@ func main() {
 		db.Create(&c)
 	}
 
-	fmt.Println("✅ 成功建立使用者與優惠券種子資料")
+	fmt.Println("成功建立使用者與優惠券種子資料")
 }
