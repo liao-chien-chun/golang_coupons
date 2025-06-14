@@ -2,12 +2,17 @@
 package controllers
 
 import (
+	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/ericliao/coupon-system/config"
 	"github.com/ericliao/coupon-system/models"
+	"github.com/ericliao/coupon-system/pkg/redisclient"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,6 +31,19 @@ func RedeemCoupon(c *gin.Context) {
 
 	db := config.DB
 
+	// Redis 上鎖（悲觀鎖）避免同時領券
+	lockKey := fmt.Sprintf("lock:coupon:%d", couponID)
+	lockSuccess, err := redisclient.Rdb.SetNX(redisclient.Ctx, lockKey, "locked", 3*time.Second).Result()
+	if err != nil || !lockSuccess {
+		log.Printf("Redis 鎖定失敗：%v", err)
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "系統繁忙，請稍後再試"})
+		return
+	}
+	defer func() {
+		log.Printf("釋放 Redis 鎖: %s", lockKey)
+		redisclient.Rdb.Del(redisclient.Ctx, lockKey) // 確保最後會釋放鎖
+	}()
+
 	// 檢查是否已領取過
 	var existing models.CouponUsage
 	db.Where("user_id = ? AND coupon_id = ?", userID, couponID).First(&existing)
@@ -34,9 +52,34 @@ func RedeemCoupon(c *gin.Context) {
 		return
 	}
 
-	// 查詢優惠券
+	// 先從 Redis 讀取快取資料
 	var coupon models.Coupon
-	db.First(&coupon, couponID)
+	redisKey := fmt.Sprintf("coupon_data:%d", couponID)
+	cachedData, err := redisclient.Rdb.Get(redisclient.Ctx, redisKey).Result()
+	if err == nil {
+		log.Printf("從 Redis 快取取得 coupon #%d", couponID)
+		// 成功從 Redis 取得快取，反序列化
+		if err := json.Unmarshal([]byte(cachedData), &coupon); err != nil {
+			log.Printf("反序列化快取失敗，fallback 查 DB: %v", err)
+			// 快取壞掉 fallback 查資料庫
+			db.First(&coupon, couponID)
+		}
+	} else if err == redis.Nil {
+		log.Printf("Redis 無資料，從 DB 查 coupon #%d 並寫入快取", couponID)
+		// Redis 無此快取 → 從資料庫撈
+		db.First(&coupon, couponID)
+		if coupon.ID != 0 {
+			// 寫入 Redis 快取，預設 10 分鐘 TTL
+			if jsonBytes, err := json.Marshal(coupon); err == nil {
+				redisclient.Rdb.Set(redisclient.Ctx, redisKey, jsonBytes, 10*time.Minute)
+			}
+		}
+	} else {
+		log.Printf("Redis 讀取錯誤，fallback 查 DB: %v", err)
+		// Redis 有問題 fallback DB
+		db.First(&coupon, couponID)
+	}
+
 	if coupon.ID == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "找不到優惠券"})
 		return
@@ -53,10 +96,9 @@ func RedeemCoupon(c *gin.Context) {
 		return
 	}
 
-	// 更新已領取數量
+	// 更新已領取數量（建議包在交易中）
 	db.Model(&coupon).Update("redeemed", coupon.Redeemed+1)
 
-	// 建立領取記錄
 	usage := models.CouponUsage{
 		UserID:    userID,
 		CouponID:  coupon.ID,
