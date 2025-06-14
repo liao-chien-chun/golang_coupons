@@ -1,0 +1,17 @@
+# Go build
+/bin/
+/bin/*
+
+# IDE / 編輯器暫存檔
+.vscode/
+.idea/
+.DS_Store
+
+# Logs
+*.log
+
+# 編譯中間產物
+*.out
+*.exe
+
+.env
