@@ -1,5 +1,5 @@
 # 使用官方 Golang 映像檔，alpine 為輕量版，支援 M1/M2（arm64）
-FROM golang:1.22-alpine
+FROM golang:1.24.4-alpine
 
 # 安裝常用工具（例如 curl、tzdata 方便 debug）
 RUN apk add --no-cache git curl tzdata
