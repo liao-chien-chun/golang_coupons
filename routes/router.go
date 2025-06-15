@@ -11,5 +11,8 @@ func SetupRouter() *gin.Engine {
 	// 領取優惠券
 	r.POST("/coupons/:id/redeem", controllers.RedeemCoupon)
 
+	// 查詢使用者所有優惠願
+	r.GET("/users/:id/coupons", controllers.GetUserCoupons)
+
 	return r
 }
