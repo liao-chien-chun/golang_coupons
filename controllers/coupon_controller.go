@@ -13,6 +13,7 @@ import (
 	"github.com/ericliao/coupon-system/models"
 	"github.com/ericliao/coupon-system/pkg/redisclient"
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 
 	"github.com/gin-gonic/gin"
 )
@@ -141,5 +142,97 @@ func RedeemCoupon(c *gin.Context) {
 		"success": true,
 		"status":  http.StatusOK,
 		"message": "優惠券領取成功",
+	})
+}
+
+// 使用優惠券 API POST /coupons/:id/use
+func UseCoupon(c *gin.Context) {
+	// 模擬登入的使用者 id
+	userId := 1
+
+	// 從 URL 參數取得優惠券 ID
+	couponId, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "請求格式錯誤",
+			"error":   "優惠券 ID 應為數字",
+		})
+		return
+	}
+
+	db := config.DB
+
+	// 查詢該使用者的該張優惠券使用紀錄，且狀態為未使用
+	var usage models.CouponUsage
+	if err := db.Where("user_id = ? AND coupon_id =  ?", userId, couponId).First(&usage).Error; err != nil {
+		status := http.StatusInternalServerError
+		msg := "查詢使用紀錄失敗"
+		if err == gorm.ErrRecordNotFound {
+			status = http.StatusBadRequest
+			msg = "你尚未領取此優惠券"
+		}
+		c.JSON(status, gin.H{
+			"success": false,
+			"status":  status,
+			"message": "使用失敗",
+			"error":   msg,
+		})
+		return
+	}
+
+	// 查詢優惠券資料，檢查是否過期
+	var coupon models.Coupon
+	if err := db.First(&coupon, couponId).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "使用失敗",
+			"error":   "找不到優惠券資料",
+		})
+		return
+	}
+
+	now := time.Now()
+	if now.Before(coupon.StartAt) || now.After(coupon.EndAt) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "使用失敗",
+			"error":   "優惠券已過期或尚未開始",
+		})
+		return
+	}
+
+	// 狀態不是 unused 就不能使用
+	if usage.Status != "unused" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"status":  http.StatusBadRequest,
+			"message": "使用失敗",
+			"error":   "此優惠券已使用或無法再使用",
+		})
+		return
+	}
+
+	// 更新使用紀錄為已使用
+	usage.Status = "used"
+	usage.UsedAt = &now
+	if err := db.Save(&usage).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"status":  http.StatusInternalServerError,
+			"message": "使用失敗",
+			"error":   "更新優惠券狀態失敗",
+		})
+		return
+	}
+
+	// 成功回傳
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"status":  http.StatusOK,
+		"message": "優惠券使用成功",
 	})
 }
